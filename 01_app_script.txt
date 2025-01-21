@@ -1,0 +1,74 @@
+function createBarChartForIssues() {
+  const sheetName = "Sheet1"; // Replace with the name of your sheet
+  const chartSheetName = "ChartSheet"; // Sheet where the chart will be created
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
+  const chartSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(chartSheetName) || SpreadsheetApp.getActiveSpreadsheet().insertSheet(chartSheetName);
+
+  // Clear the chart sheet
+  chartSheet.clear();
+
+  // Get data from the sheet
+  const dataRange = sheet.getDataRange();
+  const data = dataRange.getValues();
+
+  // Extract headers and rows
+  const headers = data[0];
+  const rows = data.slice(1);
+
+  // Define column indexes based on headers
+  const assigneeIndex = headers.indexOf("Assignee");
+  const statusIndex = headers.indexOf("Status");
+  const createdIndex = headers.indexOf("Created");
+
+  if (assigneeIndex === -1 || statusIndex === -1 || createdIndex === -1) {
+    throw new Error("One or more required columns are missing.");
+  }
+
+  // Aggregate data
+  const today = new Date();
+  const assigneeData = {};
+
+  rows.forEach(row => {
+    const assignee = row[assigneeIndex];
+    const status = row[statusIndex];
+    const createdDate = new Date(row[createdIndex]);
+
+    if (!assignee) return;
+
+    if (!assigneeData[assignee]) {
+      assigneeData[assignee] = { closed: 0, opened: 0, totalAge: 0, openCount: 0 };
+    }
+
+    if (status.toLowerCase() === "closed") {
+      assigneeData[assignee].closed++;
+    } else if (status.toLowerCase() === "open") {
+      assigneeData[assignee].opened++;
+      const age = Math.floor((today - createdDate) / (1000 * 60 * 60 * 24)); // Age in days
+      assigneeData[assignee].totalAge += age;
+      assigneeData[assignee].openCount++;
+    }
+  });
+
+  // Prepare chart data
+  const chartData = [["Assignee", "Closed Issues", "Opened Issues", "Avg Age of Open Issues"]];
+  for (const [assignee, values] of Object.entries(assigneeData)) {
+    const avgAge = values.openCount > 0 ? values.totalAge / values.openCount : 0;
+    chartData.push([assignee, values.closed, values.opened, avgAge]);
+  }
+
+  // Write data to the chart sheet
+  chartSheet.getRange(1, 1, chartData.length, chartData[0].length).setValues(chartData);
+
+  // Create and add the chart
+  const chart = chartSheet.newChart()
+    .setChartType(Charts.ChartType.COLUMN)
+    .addRange(chartSheet.getRange(1, 1, chartData.length, chartData[0].length))
+    .setPosition(1, chartData[0].length + 2, 0, 0)
+    .setOption("title", "Issues per Assignee")
+    .setOption("hAxis", { title: "Assignees" })
+    .setOption("vAxis", { title: "Count/Average Age" })
+    .setOption("isStacked", false)
+    .build();
+
+  chartSheet.insertChart(chart);
+}
