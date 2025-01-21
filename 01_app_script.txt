@@ -1,8 +1,9 @@
-function createBarChartForIssues() {
-  const sheetName = "Sheet1"; // Replace with the name of your sheet
+function createChartsAndStats() {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const sheetName = "Sheet1"; // Replace with the name of your data sheet
   const chartSheetName = "ChartSheet"; // Sheet where the chart will be created
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
-  const chartSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(chartSheetName) || SpreadsheetApp.getActiveSpreadsheet().insertSheet(chartSheetName);
+  const sheet = spreadsheet.getSheetByName(sheetName);
+  const chartSheet = spreadsheet.getSheetByName(chartSheetName) || spreadsheet.insertSheet(chartSheetName);
 
   // Clear the chart sheet
   chartSheet.clear();
@@ -21,7 +22,7 @@ function createBarChartForIssues() {
   const createdIndex = headers.indexOf("Created");
 
   if (assigneeIndex === -1 || statusIndex === -1 || createdIndex === -1) {
-    throw new Error("One or more required columns are missing.");
+    throw new Error("One or more required columns (Assignee, Status, Created) are missing.");
   }
 
   // Aggregate data
