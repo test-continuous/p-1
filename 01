@@ -1,0 +1,224 @@
+from flask import Flask, render_template, request
+import pandas as pd
+
+app = Flask(__name__)
+
+# Load the CSV file
+csv_file = 'data.csv'
+df = pd.read_csv(csv_file, sep='\t')
+df.columns = df.columns.str.strip()  # Remove leading/trailing spaces
+
+@app.route('/')
+def home():
+    # Get all possible environment options
+    all_envs = ['dv', 'qa', 'pr', 'ut', 'ss']  # Static list of all environments
+
+    # Get environments that have data in the CSV
+    valid_envs = df['environment'].dropna().unique().tolist()
+
+    return render_template(
+        'home.html',
+        available_env=all_envs,  # All environments (static)
+        valid_envs=valid_envs    # Valid environments from CSV
+    )
+
+@app.route('/filter_region', methods=['POST'])
+def filter_region():
+    selected_env = request.form['environment']
+    filtered_df = df[df['environment'] == selected_env]
+
+    # Map regions based on environment
+    regions_map = {
+        'dv': ['usc1', 'use5'],
+        'pr': ['usc1', 'use5'],
+        'ut': ['usc1', 'use5'],
+        'ss': ['usc1', 'use5'],
+        'qa': ['usc1', 'use5'],
+    }
+
+    # Find valid regions for the selected environment
+    valid_regions = filtered_df['region'].unique().tolist()
+    available_regions = [region for region in regions_map.get(selected_env, []) if region in valid_regions]
+
+    return {'regions': available_regions}
+
+@app.route('/filter_dates', methods=['POST'])
+def filter_dates():
+    selected_env = request.form['environment']
+    selected_region = request.form['region']
+    filtered_df = df[(df['environment'] == selected_env) & (df['region'] == selected_region)]
+
+    # Get available dates
+    available_dates = filtered_df['Date'].unique().tolist()
+    available_dates = [date for date in available_dates if pd.notna(date)]
+
+    return {'dates': available_dates}
+
+@app.route('/submit', methods=['POST'])
+def submit():
+    # Handle form submission
+    return "Redirected!"
+
+if __name__ == '__main__':
+    app.run(debug=True)
+------------------------------------
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Home</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        /* Style for disabled options */
+        .disabled-option {
+            color: grey;
+            pointer-events: none; /* Prevent clicks */
+            background-color: #f5f5f5;
+        }
+
+        /* Hover tooltip */
+        .disabled-option:hover {
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <h1>Select Environment, Region, and Date</h1>
+
+    <form id="main-form" method="POST" action="/submit">
+        <!-- Environment Dropdown -->
+        <label for="environment">Environment:</label>
+        <select id="environment" name="environment" required>
+            <option value="">Select Environment</option>
+            {% for env in available_env %}
+                {% if env in valid_envs %}
+                    <option value="{{ env }}">{{ env }}</option>
+                {% else %}
+                    <option class="disabled-option" disabled title="No data available for this environment">
+                        {{ env }}
+                    </option>
+                {% endif %}
+            {% endfor %}
+        </select>
+
+        <!-- Region Dropdown -->
+        <label for="region">Region:</label>
+        <select id="region" name="region" disabled>
+            <option value="">Select Region</option>
+        </select>
+
+        <!-- Date Dropdown -->
+        <label for="date">Date:</label>
+        <select id="date" name="date" disabled>
+            <option value="">Select Date</option>
+        </select>
+
+        <button type="submit" disabled id="submit-button">Submit</button>
+    </form>
+
+    <script>
+        $(document).ready(function () {
+            // Handle Environment Change
+            $('#environment').on('change', function () {
+                const env = $(this).val();
+                $('#region').html('<option value="">Select Region</option>').prop('disabled', true);
+                $('#date').html('<option value="">Select Date</option>').prop('disabled', true);
+                $('#submit-button').prop('disabled', true);
+
+                if (env) {
+                    $.post('/filter_region', { environment: env }, function (data) {
+                        if (data.regions.length > 0) {
+                            data.regions.forEach(region => {
+                                $('#region').append(`<option value="${region}">${region}</option>`);
+                            });
+                            $('#region').prop('disabled', false);
+                        }
+                    });
+                }
+            });
+
+            // Handle Region Change
+            $('#region').on('change', function () {
+                const env = $('#environment').val();
+                const region = $(this).val();
+                $('#date').html('<option value="">Select Date</option>').prop('disabled', true);
+                $('#submit-button').prop('disabled', true);
+
+                if (env && region) {
+                    $.post('/filter_dates', { environment: env, region: region }, function (data) {
+                        if (data.dates.length > 0) {
+                            data.dates.forEach(date => {
+                                $('#date').append(`<option value="${date}">${date}</option>`);
+                            });
+                            $('#date').prop('disabled', false);
+                        }
+                    });
+                }
+            });
+
+            // Handle Date Change
+            $('#date').on('change', function () {
+                const date = $(this).val();
+                $('#submit-button').prop('disabled', !date);
+            });
+        });
+    </script>
+</body>
+</html>
+
+
+
+-------------------------
+
+<script>
+    // JavaScript to dynamically populate region and date dropdowns based on the selected environment and region
+    document.getElementById('environment').addEventListener('change', function () {
+        let environment = this.value;
+        updateRegions(environment);
+    });
+
+    document.getElementById('region').addEventListener('change', function () {
+        let environment = document.getElementById('environment').value;
+        let region = this.value;
+        updateDates(environment, region);
+    });
+
+    // Function to update regions dropdown based on the selected environment
+    function updateRegions(environment) {
+        const regionSelect = document.getElementById('region');
+        regionSelect.innerHTML = '<option value="" disabled selected>Select a Region</option>';
+
+        // Fetch regions for the selected environment (populate with data from the server-side)
+        fetch(`/regions/${environment}`)
+            .then(response => response.json())
+            .then(regions => {
+                regions.forEach(region => {
+                    let option = document.createElement('option');
+                    option.value = region;
+                    option.text = region;
+                    regionSelect.appendChild(option);
+                });
+            });
+    }
+
+    // Function to update dates dropdown based on the selected environment and region
+    function updateDates(environment, region) {
+        const dateSelect = document.getElementById('date');
+        dateSelect.innerHTML = '<option value="" disabled selected>Select a Date</option>';
+
+        // Fetch dates for the selected environment and region (populate with data from the server-side)
+        fetch(`/dates/${environment}/${region}`)
+            .then(response => response.json())
+            .then(dates => {
+                dates.forEach(date => {
+                    let option = document.createElement('option');
+                    option.value = date;
+                    option.text = date;
+                    dateSelect.appendChild(option);
+                });
+            });
+    }
+</script>
