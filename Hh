@@ -1,0 +1,65 @@
+<form action="/results" method="get">
+    <label for="environment">Select Environment:</label>
+    <select id="environment" name="environment" required>
+        <option value="">-- Select Environment --</option>
+        {% for env in environments %}
+        <option value="{{ env }}">{{ env }}</option>
+        {% endfor %}
+    </select>
+
+    <label for="region">Select Region:</label>
+    <select id="region" name="region" disabled required>
+        <option value="">-- Select Region --</option>
+    </select>
+
+    <label for="date">Select Date:</label>
+    <select id="date" name="date" disabled required>
+        <option value="">-- Select Date --</option>
+    </select>
+
+    <button type="submit">View Results</button>
+</form>
+
+<script>
+document.getElementById("environment").addEventListener("change", function() {
+    var environment = this.value;
+    var regionDropdown = document.getElementById("region");
+    var dateDropdown = document.getElementById("date");
+
+    regionDropdown.innerHTML = '<option value="">-- Loading Regions --</option>';
+    dateDropdown.innerHTML = '<option value="">-- Select Date --</option>';
+    dateDropdown.disabled = true;
+
+    if (environment) {
+        fetch(`/regions/${environment}`)
+        .then(response => response.json())
+        .then(data => {
+            regionDropdown.innerHTML = '<option value="">-- Select Region --</option>';
+            data.forEach(region => {
+                regionDropdown.innerHTML += `<option value="${region}">${region}</option>`;
+            });
+            regionDropdown.disabled = false;
+        });
+    }
+});
+
+document.getElementById("region").addEventListener("change", function() {
+    var environment = document.getElementById("environment").value;
+    var region = this.value;
+    var dateDropdown = document.getElementById("date");
+
+    dateDropdown.innerHTML = '<option value="">-- Loading Dates --</option>';
+
+    if (environment && region) {
+        fetch(`/dates/${environment}/${region}`)
+        .then(response => response.json())
+        .then(data => {
+            dateDropdown.innerHTML = '<option value="">-- Select Date --</option>';
+            data.forEach(date => {
+                dateDropdown.innerHTML += `<option value="${date}">${date}</option>`;
+            });
+            dateDropdown.disabled = false;
+        });
+    }
+});
+</script>
