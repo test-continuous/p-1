@@ -1,32 +1,50 @@
-from bs4 import BeautifulSoup
+from flask import Flask, render_template, request, session, jsonify
+from google.cloud import storage
+import threading
 
-def parse_html(html_content):
-    """Optimized HTML parsing function to extract required details."""
-    
-    soup = BeautifulSoup(html_content, 'lxml')  # Use 'lxml' for speed
+app = Flask(__name__)
+app.secret_key = "your_secret_key"  # Required for session storage
 
-    # Find the first table efficiently
-    table = soup.find('table')
-    if not table:
-        return None  # No table found, return None
+BUCKET_NAME = "app_dr_checkout"
 
-    rows = table.find_all('tr')
-    if len(rows) < 2:
-        return None  # Not enough rows to process
+def fetch_and_store_data(environment, region):
+    """Fetches all HTML content for an environment-region combo and stores in session."""
+    client = storage.Client()
+    bucket = client.bucket(BUCKET_NAME)
+    data_cache = {}
 
-    # Extract details using dictionary comprehension (avoiding redundant loops)
-    details = {row.find_all('td')[0].text.strip(): row.find_all('td')[1].text.strip()
-               for row in rows[1:] if len(row.find_all('td')) >= 2}
+    # Fetch all available dates in the environment/region
+    for blob in bucket.list_blobs(prefix=f"{environment}/{region}/"):
+        parts = blob.name.split('/')
+        if len(parts) >= 3 and blob.name.endswith('.html'):
+            date = parts[2]  # Extract date
+            app_id = parts[3]  # Extract app ID
+            file_name = parts[-1]  # Extract file name
+            
+            if date not in data_cache:
+                data_cache[date] = {}
 
-    # Ensure required fields exist
-    required_fields = {'Component Name', 'Workload Type', 'Time of Execution', 
-                       'Environment', 'Region', 'App Namespace'}
-    if not required_fields.issubset(details):
-        return None  # Skip invalid entries
+            # Store blob content in cache
+            data_cache[date][app_id] = bucket.blob(blob.name).download_as_text()
 
-    # Extract "Pod Checkout Status" & "Log Checkout Status" from text (efficiently)
-    plain_text = soup.get_text(separator=' ')
-    details['Pod Checkout Status'] = extract_status(plain_text, "Pod Checkout Status=")
-    details['Log Checkout Status'] = extract_status(plain_text, "Log Checkout Status=")
+    session[f"{environment}_{region}_data"] = data_cache  # Store in session
 
-    return details  # Return parsed details
+@app.route('/results', methods=['GET'])
+def results():
+    """Handles fetching and rendering results efficiently."""
+    environment = request.args.get('environment')
+    region = request.args.get('region')
+    date = request.args.get('date')
+
+    if not environment or not region or not date:
+        return "Invalid selection", 400
+
+    # Fetch all data in background if not already fetched
+    if f"{environment}_{region}_data" not in session:
+        thread = threading.Thread(target=fetch_and_store_data, args=(environment, region))
+        thread.start()  # Run fetching in background
+
+    # Retrieve cached data for selected date
+    cached_data = session.get(f"{environment}_{region}_data", {}).get(date, {})
+
+    return render_template("results.html", details=cached_data, environment=environment, region=region, date=date)
