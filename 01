@@ -1,82 +1,32 @@
-from flask import Flask, request, jsonify
-from google.cloud import storage
+from bs4 import BeautifulSoup
 
-app = Flask(__name__)
-bucket_name = "your-bucket-name"
+def parse_html(html_content):
+    """Optimized HTML parsing function to extract required details."""
+    
+    soup = BeautifulSoup(html_content, 'lxml')  # Use 'lxml' for speed
 
-client = storage.Client()
+    # Find the first table efficiently
+    table = soup.find('table')
+    if not table:
+        return None  # No table found, return None
 
-def list_folders(prefix):
-    """List unique folder names inside a given prefix"""
-    blobs = client.list_blobs(bucket_name, prefix=prefix, delimiter='/')
-    return [prefix.split('/')[-2] for prefix in blobs.prefixes if prefix]
+    rows = table.find_all('tr')
+    if len(rows) < 2:
+        return None  # Not enough rows to process
 
-@app.route('/get-environments', methods=['GET'])
-def get_environments():
-    """Fetch available environments"""
-    environments = list_folders("")
-    return jsonify({"environments": environments})
+    # Extract details using dictionary comprehension (avoiding redundant loops)
+    details = {row.find_all('td')[0].text.strip(): row.find_all('td')[1].text.strip()
+               for row in rows[1:] if len(row.find_all('td')) >= 2}
 
-@app.route('/get-regions', methods=['GET'])
-def get_regions():
-    """Fetch available regions for a selected environment"""
-    environment = request.args.get('env')
-    if not environment:
-        return jsonify({"error": "Missing environment parameter"}), 400
-    regions = list_folders(f"{environment}/")
-    return jsonify({"regions": regions})
+    # Ensure required fields exist
+    required_fields = {'Component Name', 'Workload Type', 'Time of Execution', 
+                       'Environment', 'Region', 'App Namespace'}
+    if not required_fields.issubset(details):
+        return None  # Skip invalid entries
 
-@app.route('/get-dates', methods=['GET'])
-def get_dates():
-    """Fetch available dates for a selected environment and region"""
-    environment = request.args.get('env')
-    region = request.args.get('region')
-    if not environment or not region:
-        return jsonify({"error": "Missing parameters"}), 400
-    dates = list_folders(f"{environment}/{region}/")
-    return jsonify({"dates": dates})
+    # Extract "Pod Checkout Status" & "Log Checkout Status" from text (efficiently)
+    plain_text = soup.get_text(separator=' ')
+    details['Pod Checkout Status'] = extract_status(plain_text, "Pod Checkout Status=")
+    details['Log Checkout Status'] = extract_status(plain_text, "Log Checkout Status=")
 
-if __name__ == '__main__':
-    app.run(debug=True)
-
-
-
-
-<select id="environment" onchange="fetchRegions()">
-  <option value="">Select Environment</option>
-</select>
-
-<select id="region" onchange="fetchDates()" disabled>
-  <option value="">Select Region</option>
-</select>
-
-<select id="date" disabled>
-  <option value="">Select Date</option>
-</select>
-
-<script>
-async function fetchDropdown(url, elementId) {
-  const response = await fetch(url);
-  const data = await response.json();
-  const select = document.getElementById(elementId);
-  select.innerHTML = '<option value="">Select</option>' + data[elementId].map(val => `<option value="${val}">${val}</option>`).join('');
-  select.disabled = false;
-}
-
-function fetchRegions() {
-  const env = document.getElementById("environment").value;
-  document.getElementById("region").disabled = true;
-  document.getElementById("date").disabled = true;
-  if (env) fetchDropdown(`/get-regions?env=${env}`, "region");
-}
-
-function fetchDates() {
-  const env = document.getElementById("environment").value;
-  const region = document.getElementById("region").value;
-  document.getElementById("date").disabled = true;
-  if (env && region) fetchDropdown(`/get-dates?env=${env}&region=${region}`, "date");
-}
-
-// Load environments initially
-fetchDropdown("/get-environments", "environment");
-</script>
+    return details  # Return parsed details
