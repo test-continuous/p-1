@@ -1,50 +1,96 @@
-from flask import Flask, render_template, request, session, jsonify
+import time
+from flask import Flask, render_template, request, jsonify
 from google.cloud import storage
-import threading
 
 app = Flask(__name__)
-app.secret_key = "your_secret_key"  # Required for session storage
-
 BUCKET_NAME = "app_dr_checkout"
+storage_client = storage.Client()
 
-def fetch_and_store_data(environment, region):
-    """Fetches all HTML content for an environment-region combo and stores in session."""
-    client = storage.Client()
-    bucket = client.bucket(BUCKET_NAME)
-    data_cache = {}
+def get_latest_blob_timestamp(environment, region, date):
+    """Fetches the latest timestamp of blobs in the given environment, region, and date."""
+    bucket = storage_client.bucket(BUCKET_NAME)
+    latest_timestamp = 0
 
-    # Fetch all available dates in the environment/region
-    for blob in bucket.list_blobs(prefix=f"{environment}/{region}/"):
-        parts = blob.name.split('/')
-        if len(parts) >= 3 and blob.name.endswith('.html'):
-            date = parts[2]  # Extract date
-            app_id = parts[3]  # Extract app ID
-            file_name = parts[-1]  # Extract file name
-            
-            if date not in data_cache:
-                data_cache[date] = {}
+    for blob in bucket.list_blobs(prefix=f"{environment}/{region}/{date}/"):
+        if blob.updated.timestamp() > latest_timestamp:
+            latest_timestamp = blob.updated.timestamp()
 
-            # Store blob content in cache
-            data_cache[date][app_id] = bucket.blob(blob.name).download_as_text()
+    return latest_timestamp
 
-    session[f"{environment}_{region}_data"] = data_cache  # Store in session
-
-@app.route('/results', methods=['GET'])
+@app.route("/results", methods=["GET"])
 def results():
-    """Handles fetching and rendering results efficiently."""
-    environment = request.args.get('environment')
-    region = request.args.get('region')
-    date = request.args.get('date')
+    environment = request.args.get("environment")
+    region = request.args.get("region")
+    date = request.args.get("date")
 
     if not environment or not region or not date:
-        return "Invalid selection", 400
+        return "Invalid parameters", 400
 
-    # Fetch all data in background if not already fetched
-    if f"{environment}_{region}_data" not in session:
-        thread = threading.Thread(target=fetch_and_store_data, args=(environment, region))
-        thread.start()  # Run fetching in background
+    # Fetch latest timestamp to check updates
+    latest_timestamp = get_latest_blob_timestamp(environment, region, date)
 
-    # Retrieve cached data for selected date
-    cached_data = session.get(f"{environment}_{region}_data", {}).get(date, {})
+    return render_template("results.html", environment=environment, region=region, date=date, latest_timestamp=latest_timestamp)
 
-    return render_template("results.html", details=cached_data, environment=environment, region=region, date=date)
+@app.route("/check_update", methods=["GET"])
+def check_update():
+    """Checks if there is a new update in the GCS bucket for the selected environment, region, and date."""
+    environment = request.args.get("environment")
+    region = request.args.get("region")
+    date = request.args.get("date")
+    last_checked = float(request.args.get("last_checked", 0))
+
+    latest_timestamp = get_latest_blob_timestamp(environment, region, date)
+
+    return jsonify({"updated": latest_timestamp > last_checked, "latest_timestamp": latest_timestamp})
+
+if __name__ == "__main__":
+    app.run(debug=True)
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Results</title>
+    <script>
+        let latestTimestamp = {{ latest_timestamp }}; // Initial timestamp
+
+        function refreshData() {
+            location.reload(); // Manually refresh the page
+        }
+
+        function checkForUpdates() {
+            const params = new URLSearchParams({
+                environment: "{{ environment }}",
+                region: "{{ region }}",
+                date: "{{ date }}",
+                last_checked: latestTimestamp
+            });
+
+            fetch(`/check_update?${params}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.updated) {
+                        console.log("New update detected, refreshing...");
+                        location.reload(); // Auto-refresh the page if new data is available
+                    }
+                })
+                .catch(error => console.error("Error checking for updates:", error));
+        }
+
+        // Check for updates every 60 seconds
+        setInterval(checkForUpdates, 60000);
+    </script>
+</head>
+<body>
+    <h1>Results for {{ environment }} / {{ region }} / {{ date }}</h1>
+
+    <button onclick="refreshData()">Refresh</button>
+
+    <div id="results-container">
+        <!-- Display your results here -->
+    </div>
+</body>
+</html>
