@@ -1,96 +1,37 @@
-import time
-from flask import Flask, render_template, request, jsonify
-from google.cloud import storage
+<script>
+    let latestTimestamp = {{ latest_timestamp }}; // Initial timestamp
 
-app = Flask(__name__)
-BUCKET_NAME = "app_dr_checkout"
-storage_client = storage.Client()
+    function refreshData() {
+        location.reload(); // Manually refresh the page
+    }
 
-def get_latest_blob_timestamp(environment, region, date):
-    """Fetches the latest timestamp of blobs in the given environment, region, and date."""
-    bucket = storage_client.bucket(BUCKET_NAME)
-    latest_timestamp = 0
+    function checkForUpdates() {
+        console.log("Checking for updates...");
 
-    for blob in bucket.list_blobs(prefix=f"{environment}/{region}/{date}/"):
-        if blob.updated.timestamp() > latest_timestamp:
-            latest_timestamp = blob.updated.timestamp()
+        const params = new URLSearchParams({
+            environment: "{{ environment }}",
+            region: "{{ region }}",
+            date: "{{ date }}",
+            last_checked: latestTimestamp
+        });
 
-    return latest_timestamp
+        fetch(`/check_update?${params}`)
+            .then((response) => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then((data) => {
+                console.log("Response received:", data);
+                if (data.updated) {
+                    console.log("New update detected, refreshing...");
+                    location.reload(); // Auto-refresh the page if new data is available
+                }
+            })
+            .catch((error) => console.error("Error checking for updates:", error));
+    }
 
-@app.route("/results", methods=["GET"])
-def results():
-    environment = request.args.get("environment")
-    region = request.args.get("region")
-    date = request.args.get("date")
-
-    if not environment or not region or not date:
-        return "Invalid parameters", 400
-
-    # Fetch latest timestamp to check updates
-    latest_timestamp = get_latest_blob_timestamp(environment, region, date)
-
-    return render_template("results.html", environment=environment, region=region, date=date, latest_timestamp=latest_timestamp)
-
-@app.route("/check_update", methods=["GET"])
-def check_update():
-    """Checks if there is a new update in the GCS bucket for the selected environment, region, and date."""
-    environment = request.args.get("environment")
-    region = request.args.get("region")
-    date = request.args.get("date")
-    last_checked = float(request.args.get("last_checked", 0))
-
-    latest_timestamp = get_latest_blob_timestamp(environment, region, date)
-
-    return jsonify({"updated": latest_timestamp > last_checked, "latest_timestamp": latest_timestamp})
-
-if __name__ == "__main__":
-    app.run(debug=True)
-
-
-
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Results</title>
-    <script>
-        let latestTimestamp = {{ latest_timestamp }}; // Initial timestamp
-
-        function refreshData() {
-            location.reload(); // Manually refresh the page
-        }
-
-        function checkForUpdates() {
-            const params = new URLSearchParams({
-                environment: "{{ environment }}",
-                region: "{{ region }}",
-                date: "{{ date }}",
-                last_checked: latestTimestamp
-            });
-
-            fetch(`/check_update?${params}`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.updated) {
-                        console.log("New update detected, refreshing...");
-                        location.reload(); // Auto-refresh the page if new data is available
-                    }
-                })
-                .catch(error => console.error("Error checking for updates:", error));
-        }
-
-        // Check for updates every 60 seconds
-        setInterval(checkForUpdates, 60000);
-    </script>
-</head>
-<body>
-    <h1>Results for {{ environment }} / {{ region }} / {{ date }}</h1>
-
-    <button onclick="refreshData()">Refresh</button>
-
-    <div id="results-container">
-        <!-- Display your results here -->
-    </div>
-</body>
-</html>
+    // Check for updates every 60 seconds
+    setInterval(checkForUpdates, 60000);
+</script>
