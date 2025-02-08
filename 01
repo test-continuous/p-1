@@ -1,37 +1,378 @@
-<script>
-    let latestTimestamp = {{ latest_timestamp }}; // Initial timestamp
+from flask import Flask, render_template, request, jsonify
 
-    function refreshData() {
-        location.reload(); // Manually refresh the page
-    }
+from google.cloud import storage
 
-    function checkForUpdates() {
-        console.log("Checking for updates...");
+from bsa import BeautifulSoup
 
-        const params = new URLSearchParams({
-            environment: "{{ environment }}",
-            region: "{{ region }}",
-            date: "{{ date }}",
-            last_checked: latestTimestamp
-        });
+from datetime import datetime, timezone, timedelta
 
-        fetch(`/check_update?${params}`)
-            .then((response) => {
-                if (!response.ok) {
-                    throw new Error(`HTTP error! Status: ${response.status}`);
-                }
-                return response.json();
-            })
-            .then((data) => {
-                console.log("Response received:", data);
-                if (data.updated) {
-                    console.log("New update detected, refreshing...");
-                    location.reload(); // Auto-refresh the page if new data is available
-                }
-            })
-            .catch((error) => console.error("Error checking for updates:", error));
-    }
+import os
 
-    // Check for updates every 60 seconds
-    setInterval(checkForUpdates, 60000);
-</script>
+import time
+
+app Flask(_name_)
+
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/home/e48718/app/app-checkout/v10-1/service-account-key/key.json" service account key
+
+Configuring GCS bucket
+
+BUCKET NAME = 'dr_checkout_test'
+
+BUCKET NAME = app_dr_checkout'
+
+def list_environments():
+
+"""Lists available environments from GCS."""
+
+client storage.Client()
+
+bucket client.bucket(BUCKET_NAME)
+
+environments = set()
+
+for blob in bucket list_blobs():
+
+parts blob.name.split('/')
+
+if len(parts) >= 1:
+
+environments.add(parts[0])
+
+return sorted(environments)
+
+
+
+def list_regions (environment):
+
+"""Lists available regions for a given environment from GCS."""
+
+client = storage.Client()
+
+bucket = client.bucket(BUCKET_NAME)
+
+regions = set()
+
+for blob in bucket.list_blobs():
+
+parts = blob.name.strip('/').split('/')
+
+# print(f"Blob: {blob.name} - Parts: {parts}")
+
+if len(parts) >= 2 and parts[0] == environment:
+
+regions.add(parts[1])
+
+# print(f"Regions for {environment}: {regions}")
+
+return sorted(regions)
+
+
+
+def list_dates (environment, region):
+
+"""Lists available dates for a given environment and region from GCS."""
+
+client = storage.Client()
+
+bucket = client.bucket (BUCKET_NAME)
+
+dates = set()
+
+for blob in bucket.list_blobs():
+
+parts = blob.name.strip('/').split('/')
+
+# print(f"Blob: {blob.name} - Parts: {parts}")
+
+if len(parts) >= 3 and parts[0] == environment and parts[1] == region:
+
+dates.add(parts[2])
+
+# print(f"Dates for {environment}-{region}: {dates}")
+
+return sorted(dates)
+
+
+def fetch_html_from_gcs(environment, region, date, app_id, filename):
+
+Fetches an HTML file from the GCS bucket."""
+
+client = storage.Client()
+
+bucket = client.bucket(BUCKET_NAME)
+
+# blob = bucket.blob(f"{date}/{app_id}/{filename}")
+
+blob = bucket.blob(f"{environment}/{region}/{date}/{app_id}/{filename}")
+
+return blob.download_as_text()
+
+def parse_html(html_content): #used 1xml parser
+
+soup BeautifulSoup(html_content, 'lxml')
+
+table soup.find("table")
+
+if not table:
+
+return None
+
+rows = table.find_all('tr')
+
+if len(rows)<2:
+
+return None
+
+details = [row.find_all("td')[0].text.strip(): row.find_all('td')[1].text.strip() for row in rows[1:] if len(row.find_all("td")>=2}
+
+required_fields = {'Component Name', 'Workload Type', 'Time of Execution', 'Environment', 'Region', 'App Namespace"}
+
+if not required_fields.issubset(details):
+
+return None
+
+details['Pod Checkout Status'] = search_status_plain_text(soup, "Pod Checkout Status=")
+
+Metails['Log Checkout Status'] = search_status_plain_text(soup, "Log Checkout Status=")
+
+Metails['Environment'] = details.get('Environment', 'Unknown')
+
+etails['Region'] = details.get('Region', 'Unknown')
+
+etails['App Namespace'] = details.get('App Namespace', 'Unknown')
+
+
+
+
+@app.route("/")
+
+def index():
+
+"""Displays the homepage with available dates."""
+
+environments = list_environments()
+
+return render_template('index.html', environments-environments)
+
+@app.route("/regions/<environment>')
+
+def get_regions(environment):
+
+"""Displays available regions for a given environment."""
+
+regions = list_regions(environment)
+
+# print(f"available regions '{environment}': '{regions}' ")
+
+return regions
+
+app.route('/dates/<environment>/<region>')
+
+ef get_dates(environment, region):
+
+"""Displays available Dates for a given environment with region."""
+
+dates list_dates(environment, region)
+
+return dates
+
+
+result function 
+
+
+162
+
+163 @app.route('/results', methods = ['GET'])
+
+364 def results():
+
+165 **"Displays results for the selected date.***
+
+166
+
+167 ato fetch the environment
+
+168 environment request.args.get('environment')
+
+169 #to fetch the region
+
+170 region request.args.get('region')
+
+171
+
+172 ato fetch the avilable dates for selected region and environment
+
+173 available_dates list_dates(environment, region)
+
+174 #to fetch the selected dates
+
+175 date request.args.get('date')
+
+<>
+
+176
+
+177 adebugging
+
+$
+
+178 print(f"Received: (environment) (region) (date)")
+
+179
+
+180 components_by_appid= {}
+
+181
+
+182 client storage.Client()
+
+183 bucket client.bucket(BUCKET_NAME)
+
+184 project id="prj-dv-ytest-ab-1485"
+
+185 app_ids set()
+
+186
+
+187 Timestamp shen the GCS bucket is accessed
+
+188 utc_now datetime.now(timezone.utc) # Get current UTC time
+
+189 190 cst_now utc_now.astimezone(timezone(timedelta(hours=-6))) # Convert to CST timestamp_cstcst_now.strftime('%Y-%m-%d %1:21:%S %p CST') # Format the timestamp
+
+191
+
+192 start time time.time()
+
+193
+
+194
+
+195
+
+196
+
+197
+
+198
+
+199 app_ids.add(app_id)
+
+200
+
+Fetch data for all app IDs under the selected environment, region and date
+
+for blob in bucket.list_blobs(prefix=f"(environment}/{region}/{date}/"): #adjusted path according to the parameters
+
+if blob.name.endswith(".html'):
+
+parts blob.name.split('/')
+
+if len(parts)>-5: Matching the path of bucket storage to hold values of app_id
+
+app_id parts[3] #add the app_id to display
+
+html_content-blob.download as text()
+
+
+if details: Only add valid entries
+
+details['more_details'] = f"https://storage.cloud.google.com/(bucket.name}/{blob.name}?project=(project_id)" details['app_id'] = app_id print("Parsed details", details)
+
+component key details['Component Name']
+
+Use the latest execution time for the same component
+
+if app id not in components_by_appid:
+
+components_by_appid[app_id] = {}
+
+if component key in components_by_appid[app_id]: existing components_by_appid[app_id][component_key] if details['Time of Execution'] > existing['Time of Execution']: components_by_appid[app_id][component_key] details
+
+else:
+
+components_by_appid[app_id][component_key] = details
+
+print(f"Available app-ids: (app_ids]")
+
+202
+
+203
+
+204
+
+205
+
+206
+
+207
+
+208
+
+209
+
+210
+
+211
+
+212
+
+213
+
+214
+
+215
+
+216
+
+217
+
+218
+
+219
+
+220
+
+221
+
+222
+
+223
+
+226
+
+225
+
+226
+
+227 228 229 230 231 232 233 234 available dates available_dates,
+
+date-date,
+
+235
+
+236
+
+end time time.time()
+
+execution time end time-start time
+
+print(f"Time: (execution_time: .4f) seconds")
+
+Flatten components for each App ID
+
+for app id in components_by_appid:
+
+components by_appid[app_id] = list(components_by_appid[app_id].values())
+
+return render_template(
+
+"results.html",
+
+environment-environment,
+
+region-region,
+
+components_by_appid=components_by_appid,
+
+timestamp_cst-timestamp_cst
