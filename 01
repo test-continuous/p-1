@@ -12,13 +12,11 @@ import time
 
 app Flask(_name_)
 
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/home/e48718/app/app-checkout/v10-1/service-account-key/key.json" service account key
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "service_account_path" service account key
 
 Configuring GCS bucket
 
-BUCKET NAME = 'dr_checkout_test'
-
-BUCKET NAME = app_dr_checkout'
+BUCKET NAME = 'bucket_name'
 
 def list_environments():
 
@@ -228,7 +226,7 @@ $
 
 183 bucket client.bucket(BUCKET_NAME)
 
-184 project id="prj-dv-ytest-ab-1485"
+184 project id="prj-id"
 
 185 app_ids set()
 
@@ -277,7 +275,7 @@ html_content-blob.download as text()
 
 if details: Only add valid entries
 
-details['more_details'] = f"https://storage.cloud.google.com/(bucket.name}/{blob.name}?project=(project_id)" details['app_id'] = app_id print("Parsed details", details)
+details['more_details'] = f"bucket_url" details['app_id'] = app_id print("Parsed details", details)
 
 component key details['Component Name']
 
