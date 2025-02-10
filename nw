@@ -1,0 +1,38 @@
+@app.route('/check_update')
+def check_update():
+    """Checks if the GCS bucket has new data for the selected environment, region, and date."""
+    
+    environment = request.args.get('environment')
+    region = request.args.get('region')
+    date = request.args.get('date')
+
+    if not environment or not region or not date:
+        return jsonify({"error": "Missing parameters"}), 400
+
+    # Get latest timestamp from GCS
+    latest_timestamp = get_latest_blob_timestamp(environment, region, date)
+
+    return jsonify({"latest_timestamp": latest_timestamp})
+
+
+let latestTimestamp = "{{ latest_timestamp }}"; // Store the initial timestamp
+
+function checkForUpdate() {
+    let environment = "{{ environment }}"; 
+    let region = "{{ region }}";
+    let date = "{{ date }}";
+
+    fetch(`/check_update?environment=${environment}&region=${region}&date=${date}`)
+    .then(response => response.json())
+    .then(data => {
+        if (data.latest_timestamp && data.latest_timestamp !== latestTimestamp) {
+            console.log("Data updated, reloading...");
+            latestTimestamp = data.latest_timestamp;
+            window.location.reload();
+        }
+    })
+    .catch(error => console.error("Error checking update:", error));
+}
+
+// Run every 20 seconds
+setInterval(checkForUpdate, 20000);
