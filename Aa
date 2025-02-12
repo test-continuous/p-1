@@ -1,0 +1,85 @@
+from flask import Flask, render_template, request, redirect, url_for
+import requests
+from bs4 import BeautifulSoup
+
+app = Flask(__name__)
+
+@app.route('/', methods=['GET', 'POST'])
+def index():
+    if request.method == 'POST':
+        url = request.form.get('url')
+        if url:
+            return redirect(url_for('results', url=url))
+    return render_template('index.html')
+
+@app.route('/results')
+def results():
+    url = request.args.get('url')
+    content = None
+
+    if url:
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, 'html.parser')
+            content = soup.prettify()
+        except requests.exceptions.RequestException as e:
+            content = f"Error fetching the URL: {str(e)}"
+
+    return render_template('results.html', content=content, url=url)
+
+if __name__ == '__main__':
+    app.run(debug=True)
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>URL Fetcher</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        input, button { padding: 10px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h2>Enter a URL to Fetch Data</h2>
+    <form action="/" method="POST">
+        <input type="text" name="url" placeholder="Enter URL" required>
+        <button type="submit">Fetch</button>
+    </form>
+</body>
+</html>
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fetched Results</title>
+    <script>
+        function searchContent() {
+            let input = document.getElementById("search").value.toLowerCase();
+            let contentDiv = document.getElementById("content");
+            let lines = contentDiv.innerHTML.split("\n");
+            let filtered = lines.filter(line => line.toLowerCase().includes(input));
+            contentDiv.innerHTML = filtered.join("\n");
+        }
+    </script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        textarea { width: 100%; height: 400px; }
+        input, button { padding: 10px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h2>Fetched Content from: {{ url }}</h2>
+    <input type="text" id="search" onkeyup="searchContent()" placeholder="Search...">
+    <pre id="content">{{ content }}</pre>
+    <br>
+    <a href="/">Go Back</a>
+</body>
+</html>
+
+
+
+
