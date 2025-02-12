@@ -1,3 +1,66 @@
+from flask import Flask, render_template, request
+import requests
+
+app = Flask(__name__)
+
+# Replace with your actual API that lists repositories
+LIST_REPOS_API = "YOUR_API_TO_LIST_REPOSITORIES"
+
+def get_repositories(project_name):
+    response = requests.get(LIST_REPOS_API)  # No authentication needed
+
+    if response.status_code == 200:
+        repos = response.json().get("values", [])
+        return [repo["slug"] for repo in repos if project_name.lower() in repo["slug"].lower()]
+    
+    return None
+
+def search_in_repository(repo_name, search_text):
+    # Assuming we have an API to list files in a repository
+    url = f"https://api.bitbucket.org/2.0/repositories/{repo_name}/src/master/"
+    response = requests.get(url)  # Modify if you have a custom API
+
+    matching_files = []
+
+    if response.status_code == 200:
+        files = response.json().get("values", [])
+        for file in files:
+            file_path = file["path"]
+            file_url = f"https://api.bitbucket.org/2.0/repositories/{repo_name}/src/master/{file_path}"
+            file_response = requests.get(file_url)
+
+            if file_response.status_code == 200 and search_text in file_response.text:
+                matching_files.append(file_path)
+    
+    return matching_files
+
+@app.route("/", methods=["GET", "POST"])
+def index():
+    return render_template("index.html")
+
+@app.route("/search", methods=["POST"])
+def search():
+    project_name = request.form["project_name"]
+    search_text = request.form["search_text"]
+    
+    repositories = get_repositories(project_name)
+    if not repositories:
+        return render_template("results.html", error="No repositories found.", results=None)
+
+    results = {}
+    for repo in repositories:
+        matching_files = search_in_repository(repo, search_text)
+        if matching_files:
+            results[repo] = matching_files
+    
+    return render_template("results.html", results=results)
+
+if __name__ == "__main__":
+    app.run(debug=True)
+
+
+
+
 from flask import Flask, render_template, request, redirect, url_for
 import requests
 from bs4 import BeautifulSoup
