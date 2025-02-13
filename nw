@@ -1,3 +1,46 @@
+def scan_repository(repo_url, search_text):
+    """ Scan files in a repository for the given text pattern. """
+    matched_files = []
+    
+    try:
+        response = requests.get(repo_url, headers=HEADERS, verify=False)
+        
+        # Check if response is valid JSON
+        if response.status_code != 200:
+            print(f"Error: Failed to fetch files from {repo_url} - Status Code: {response.status_code}")
+            return []
+
+        try:
+            files = response.json().get("values", [])  # Extract file list
+        except ValueError:
+            print(f"Error: Invalid JSON response from {repo_url}")
+            return []
+
+        for file in files:
+            file_url = file["links"]["self"][0]["href"]
+            file_response = requests.get(file_url, headers=HEADERS, verify=False)
+
+            if file_response.status_code == 200:
+                file_content = file_response.text
+                if re.search(search_text, file_content, re.IGNORECASE):
+                    matched_files.append(file_url)
+            else:
+                print(f"Warning: Could not fetch file {file_url} - Status: {file_response.status_code}")
+
+    except Exception as e:
+        print(f"Exception while scanning repository: {e}")
+    
+    return matched_files
+
+
+
+
+
+
+
+
+
+
 from flask import Flask, render_template, request, jsonify
 import requests
 
