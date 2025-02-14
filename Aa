@@ -1,16 +1,30 @@
-from flask import Flask, render_template, request, jsonify
+import urllib3
 import requests
+from flask import Flask, request, jsonify
+
+# Disable SSL warnings
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 app = Flask(__name__)
 
 # Bitbucket Server (Stash) Details
 BASE_URL = "https://xyz.abc.com"  # Change to your actual server
-AUTH_TOKEN = "BE2234434343CDD"  # Your actual token
-HEADERS = {"Authorization": f"Bearer {AUTH_TOKEN}", "Accept": "application/json"}
+AUTH_TOKEN = "BE2234434343CDD"  # Replace with your actual token
+HEADERS = {
+    "Authorization": f"Bearer {AUTH_TOKEN}",
+    "Accept": "application/json"
+}
 
 @app.route("/")
 def index():
-    return render_template("index.html")  # HTML Form to input project & search text
+    return """<h2>Bitbucket Repository Search</h2>
+              <form action='/search' method='post'>
+                  <label>Project Name (Optional):</label>
+                  <input type='text' name='project_name'><br>
+                  <label>Text to Search:</label>
+                  <input type='text' name='search_text' required><br>
+                  <button type='submit'>Search</button>
+              </form>"""
 
 @app.route("/search", methods=["POST"])
 def search():
@@ -23,61 +37,64 @@ def search():
     matched_files = []
 
     if project_name:
-        # Search inside a specific project
-        matched_files = search_in_project(project_name, search_text)
+        matched_files = scan_repositories(fetch_repositories(project_name), search_text)
     else:
-        # Search in all repositories (scan everything)
-        matched_files = search_in_all_projects(search_text)
+        matched_files = scan_repositories(fetch_all_repositories(), search_text)
 
     if matched_files:
         return jsonify({"matched_files": matched_files})
     else:
         return jsonify({"message": "No matching files found!"})
 
-def search_in_project(project_name, search_text):
-    """Search for text inside a specific project's repositories."""
-    matched_files = []
-    
-    repo_url = f"{BASE_URL}/projects/CND/repos/{project_name}/browse"
-    response = requests.get(repo_url, headers=HEADERS)
+def fetch_repositories(project_name):
+    """Fetch repositories for a specific project."""
+    repo_url = f"{BASE_URL}/rest/api/1.0/projects/CND/repos/{project_name}"
+    response = requests.get(repo_url, headers=HEADERS, verify=False)
 
     if response.status_code == 200:
-        files = extract_files(response.json())
-        for file in files:
-            if check_text_in_file(project_name, file, search_text):
-                matched_files.append(file)
+        return [repo["slug"] for repo in response.json().get("values", [])]
     else:
-        print(f"Error: Unable to fetch {repo_url} | Status: {response.status_code}")
+        print(f"Error fetching repositories: {response.status_code}, {response.text}")
+        return []
 
-    return matched_files
-
-def search_in_all_projects(search_text):
-    """Search for text inside all repositories under a project."""
-    matched_files = []
-    project_list_url = f"{BASE_URL}/rest/api/1.0/projects/CND/repos"
-    
-    response = requests.get(project_list_url, headers=HEADERS)
+def fetch_all_repositories():
+    """Fetch all repositories in the project."""
+    repo_url = f"{BASE_URL}/rest/api/1.0/projects/CND/repos"
+    response = requests.get(repo_url, headers=HEADERS, verify=False)
 
     if response.status_code == 200:
-        repositories = response.json().get("values", [])
-        for repo in repositories:
-            repo_name = repo["slug"]
-            matched_files.extend(search_in_project(repo_name, search_text))
+        return [repo["slug"] for repo in response.json().get("values", [])]
     else:
-        print(f"Error fetching repositories: {response.status_code}")
+        print(f"Error fetching repositories: {response.status_code}, {response.text}")
+        return []
+
+def scan_repositories(repositories, search_text):
+    """Scan repositories for a specific text inside files."""
+    matched_files = []
+
+    for repo_name in repositories:
+        browse_url = f"{BASE_URL}/projects/CND/repos/{repo_name}/browse"
+        response = requests.get(browse_url, headers=HEADERS, verify=False)
+
+        if response.status_code == 200:
+            files = extract_files(response.json())
+            for file_path in files:
+                if check_text_in_file(repo_name, file_path, search_text):
+                    matched_files.append(f"{repo_name}/{file_path}")
+        else:
+            print(f"Error: Unable to browse {repo_name} | {response.status_code}")
 
     return matched_files
 
 def extract_files(data):
-    """Extract file paths from API response."""
+    """Extract file paths from Bitbucket's API response."""
     return [file["path"]["toString"] for file in data.get("children", {}).get("values", [])]
 
-def check_text_in_file(project_name, file_path, search_text):
+def check_text_in_file(repo_name, file_path, search_text):
     """Check if search_text is present in a given file."""
-    file_url = f"{BASE_URL}/projects/CND/repos/{project_name}/browse/{file_path}"
-    
-    response = requests.get(file_url, headers=HEADERS)
-    
+    file_url = f"{BASE_URL}/projects/CND/repos/{repo_name}/browse/{file_path}"
+    response = requests.get(file_url, headers=HEADERS, verify=False)
+
     if response.status_code == 200:
         file_content = response.text
         return search_text.lower() in file_content.lower()
