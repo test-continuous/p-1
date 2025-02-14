@@ -1,148 +1,87 @@
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, jsonify
 import requests
 
 app = Flask(__name__)
 
-# Replace with your actual API that lists repositories
-LIST_REPOS_API = "YOUR_API_TO_LIST_REPOSITORIES"
+# Bitbucket Server (Stash) Details
+BASE_URL = "https://xyz.abc.com"  # Change to your actual server
+AUTH_TOKEN = "BE2234434343CDD"  # Your actual token
+HEADERS = {"Authorization": f"Bearer {AUTH_TOKEN}", "Accept": "application/json"}
 
-def get_repositories(project_name):
-    response = requests.get(LIST_REPOS_API)  # No authentication needed
-
-    if response.status_code == 200:
-        repos = response.json().get("values", [])
-        return [repo["slug"] for repo in repos if project_name.lower() in repo["slug"].lower()]
-    
-    return None
-
-def search_in_repository(repo_name, search_text):
-    # Assuming we have an API to list files in a repository
-    url = f"https://api.bitbucket.org/2.0/repositories/{repo_name}/src/master/"
-    response = requests.get(url)  # Modify if you have a custom API
-
-    matching_files = []
-
-    if response.status_code == 200:
-        files = response.json().get("values", [])
-        for file in files:
-            file_path = file["path"]
-            file_url = f"https://api.bitbucket.org/2.0/repositories/{repo_name}/src/master/{file_path}"
-            file_response = requests.get(file_url)
-
-            if file_response.status_code == 200 and search_text in file_response.text:
-                matching_files.append(file_path)
-    
-    return matching_files
-
-@app.route("/", methods=["GET", "POST"])
+@app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html")  # HTML Form to input project & search text
 
 @app.route("/search", methods=["POST"])
 def search():
-    project_name = request.form["project_name"]
-    search_text = request.form["search_text"]
-    
-    repositories = get_repositories(project_name)
-    if not repositories:
-        return render_template("results.html", error="No repositories found.", results=None)
+    project_name = request.form.get("project_name", "").strip()
+    search_text = request.form.get("search_text", "").strip()
 
-    results = {}
-    for repo in repositories:
-        matching_files = search_in_repository(repo, search_text)
-        if matching_files:
-            results[repo] = matching_files
+    if not search_text:
+        return jsonify({"error": "Search text is required!"}), 400
+
+    matched_files = []
+
+    if project_name:
+        # Search inside a specific project
+        matched_files = search_in_project(project_name, search_text)
+    else:
+        # Search in all repositories (scan everything)
+        matched_files = search_in_all_projects(search_text)
+
+    if matched_files:
+        return jsonify({"matched_files": matched_files})
+    else:
+        return jsonify({"message": "No matching files found!"})
+
+def search_in_project(project_name, search_text):
+    """Search for text inside a specific project's repositories."""
+    matched_files = []
     
-    return render_template("results.html", results=results)
+    repo_url = f"{BASE_URL}/projects/CND/repos/{project_name}/browse"
+    response = requests.get(repo_url, headers=HEADERS)
+
+    if response.status_code == 200:
+        files = extract_files(response.json())
+        for file in files:
+            if check_text_in_file(project_name, file, search_text):
+                matched_files.append(file)
+    else:
+        print(f"Error: Unable to fetch {repo_url} | Status: {response.status_code}")
+
+    return matched_files
+
+def search_in_all_projects(search_text):
+    """Search for text inside all repositories under a project."""
+    matched_files = []
+    project_list_url = f"{BASE_URL}/rest/api/1.0/projects/CND/repos"
+    
+    response = requests.get(project_list_url, headers=HEADERS)
+
+    if response.status_code == 200:
+        repositories = response.json().get("values", [])
+        for repo in repositories:
+            repo_name = repo["slug"]
+            matched_files.extend(search_in_project(repo_name, search_text))
+    else:
+        print(f"Error fetching repositories: {response.status_code}")
+
+    return matched_files
+
+def extract_files(data):
+    """Extract file paths from API response."""
+    return [file["path"]["toString"] for file in data.get("children", {}).get("values", [])]
+
+def check_text_in_file(project_name, file_path, search_text):
+    """Check if search_text is present in a given file."""
+    file_url = f"{BASE_URL}/projects/CND/repos/{project_name}/browse/{file_path}"
+    
+    response = requests.get(file_url, headers=HEADERS)
+    
+    if response.status_code == 200:
+        file_content = response.text
+        return search_text.lower() in file_content.lower()
+    return False
 
 if __name__ == "__main__":
     app.run(debug=True)
-
-
-
-
-from flask import Flask, render_template, request, redirect, url_for
-import requests
-from bs4 import BeautifulSoup
-
-app = Flask(__name__)
-
-@app.route('/', methods=['GET', 'POST'])
-def index():
-    if request.method == 'POST':
-        url = request.form.get('url')
-        if url:
-            return redirect(url_for('results', url=url))
-    return render_template('index.html')
-
-@app.route('/results')
-def results():
-    url = request.args.get('url')
-    content = None
-
-    if url:
-        try:
-            response = requests.get(url)
-            response.raise_for_status()
-            soup = BeautifulSoup(response.text, 'html.parser')
-            content = soup.prettify()
-        except requests.exceptions.RequestException as e:
-            content = f"Error fetching the URL: {str(e)}"
-
-    return render_template('results.html', content=content, url=url)
-
-if __name__ == '__main__':
-    app.run(debug=True)
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>URL Fetcher</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        input, button { padding: 10px; margin: 10px 0; }
-    </style>
-</head>
-<body>
-    <h2>Enter a URL to Fetch Data</h2>
-    <form action="/" method="POST">
-        <input type="text" name="url" placeholder="Enter URL" required>
-        <button type="submit">Fetch</button>
-    </form>
-</body>
-</html>
-
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fetched Results</title>
-    <script>
-        function searchContent() {
-            let input = document.getElementById("search").value.toLowerCase();
-            let contentDiv = document.getElementById("content");
-            let lines = contentDiv.innerHTML.split("\n");
-            let filtered = lines.filter(line => line.toLowerCase().includes(input));
-            contentDiv.innerHTML = filtered.join("\n");
-        }
-    </script>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        textarea { width: 100%; height: 400px; }
-        input, button { padding: 10px; margin: 10px 0; }
-    </style>
-</head>
-<body>
-    <h2>Fetched Content from: {{ url }}</h2>
-    <input type="text" id="search" onkeyup="searchContent()" placeholder="Search...">
-    <pre id="content">{{ content }}</pre>
-    <br>
-    <a href="/">Go Back</a>
-</body>
-</html>
-
-
-
-
