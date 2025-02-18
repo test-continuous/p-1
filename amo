@@ -3,6 +3,78 @@
 # Define API credentials and base URL
 API_URL="https://serverstash.server.com/rest/api1.0/projects/ABC/repos"
 AUTH_TOKEN="BE2234434343CDD"
+LIMIT=100  # Number of repositories per request
+START=0    # Pagination start index
+COUNT=1    # Counter for numbering repositories
+declare -a REPOS  # Array to store repository names
+
+echo "Fetching all sub-repositories..."
+
+# Fetch all repositories
+while true; do
+    response=$(curl -s -H "Authorization: Bearer $AUTH_TOKEN" \
+                      -H "Content-Type: application/json" \
+                      "$API_URL?limit=$LIMIT&start=$START")
+
+    # Extract repository names
+    for repo_name in $(echo "$response" | jq -r '.values[].name'); do
+        echo "$COUNT. $repo_name"
+        REPOS+=("$repo_name")  # Store repo in array
+        ((COUNT++))
+    done
+
+    # Check if there are more pages
+    is_last_page=$(echo "$response" | jq -r '.isLastPage')
+    if [ "$is_last_page" == "true" ]; then
+        break
+    fi
+
+    START=$(echo "$response" | jq -r '.nextPageStart')
+done
+
+echo "Total repositories listed: $((COUNT - 1))"
+
+# Ask user if they want to provide a project name
+echo -e "\nPattern and Config Checker"
+read -p "Would you like to specify a project name? (yes/no): " user_choice
+
+if [[ "$user_choice" == "yes" ]]; then
+    read -p "Enter project name: " project_name
+
+    # Check if project exists in the fetched list
+    if [[ ! " ${REPOS[@]} " =~ " $project_name " ]]; then
+        echo "No such project found."
+        exit 1
+    fi
+    echo "Project '$project_name' found!"
+
+    # Get the pattern to search for
+    read -p "Enter pattern to search in folder names: " pattern
+
+    echo "Searching inside project '$project_name' for folders matching '$pattern'..."
+    # Mocked path for repo directory structure (Modify this based on actual repo path)
+    PROJECT_PATH="/repos/$project_name"
+
+    find "$PROJECT_PATH" -type d | grep -E "$(echo "$pattern" | sed 's/\(.\)/\1.*?/g')" || echo "No folders matched the pattern."
+else
+    # General pattern search in all repositories
+    read -p "Enter pattern to search in folder names across all repos: " pattern
+    echo "Searching across all repositories for folders matching '$pattern'..."
+
+    # Iterate through each repo and search for the pattern
+    for repo in "${REPOS[@]}"; do
+        REPO_PATH="/repos/$repo"  # Mock path (Update based on real structure)
+        find "$REPO_PATH" -type d | grep -E "$(echo "$pattern" | sed 's/\(.\)/\1.*?/g')" || echo "No matches found in $repo."
+    done
+fi
+
+
+-------------------------------------------------------------------------------
+#!/bin/bash
+
+# Define API credentials and base URL
+API_URL="https://serverstash.server.com/rest/api1.0/projects/ABC/repos"
+AUTH_TOKEN="BE2234434343CDD"
 LIMIT=100  # Number of repositories to fetch per request
 START=0    # Pagination start index
 COUNT=1    # Counter for numbering repositories
