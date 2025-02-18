@@ -1,3 +1,43 @@
+read -p "Do you want to list all files and directories recursively in '$project_name'? (yes/no): " list_files_choice
+
+    if [[ "$list_files_choice" == "yes" ]]; then
+        echo "Recursively listing files and directories in '$project_name'..."
+
+        # Function to fetch and list all files and directories recursively
+        list_files_recursive() {
+            local repo="$1"
+            local path="$2"  # Path to scan (starting from root)
+            
+            # API call to fetch files and folders at the given path
+            response=$(curl -s -H "Authorization: Bearer $AUTH_TOKEN" \
+                              -H "Content-Type: application/json" \
+                              "https://serverstash.server.com/rest/api1.0/projects/ABC/repos/$repo/browse/$path")
+
+            # Extract and iterate over each item in the directory
+            for item in $(echo "$response" | jq -r '.children.values[].path.toString'); do
+                echo "$item"
+
+                # If it's a directory, call the function recursively
+                is_dir=$(echo "$response" | jq -r ".children.values[] | select(.path.toString==\"$item\") | .directory")
+                if [[ "$is_dir" == "true" ]]; then
+                    list_files_recursive "$repo" "$item"
+                fi
+            done
+        }
+
+        # Start recursive listing from the root of the repository
+        list_files_recursive "$project_name" ""
+
+    else
+        echo "Job done."
+    fi
+
+
+
+
+
+
+
 read -p "Do you want to list files and directories inside '$project_name'? (yes/no): " list_files_choice
 
     if [[ "$list_files_choice" == "yes" ]]; then
