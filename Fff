@@ -44,35 +44,30 @@ if [[ " ${REPOS[@]} " =~ " $project_name " ]]; then
     # Ask for pattern input
     read -p "Enter the directory name pattern to search for: " pattern
 
-    echo "Searching for directories matching '$pattern' in '$project_name'..."
+    echo "Navigating to '$project_name/browse/k8s/envs/dv/usc1/'..."
 
-    # Function to perform BFS traversal and find directories matching the pattern
-    search_pattern_recursive() {
-        local repo="$1"
-        local path="$2"
+    # Fetch the list of app-id directories
+    response=$(curl -s -H "Authorization: Bearer $AUTH_TOKEN" \
+                      -H "Content-Type: application/json" \
+                      "$API_URL/$project_name/browse/k8s/envs/dv/usc1/")
+
+    # Store app-id directories in an array
+    app_ids=($(echo "$response" | jq -r '.children.values[] | select(.directory == true) | .path.toString'))
+
+    # Iterate through each app-id and check for the pattern in 'promotable' folder
+    for app_id in "${app_ids[@]}"; do
+        promotable_path="$app_id/promotable"
         
         # Fetch directory contents
         response=$(curl -s -H "Authorization: Bearer $AUTH_TOKEN" \
                           -H "Content-Type: application/json" \
-                          "https://serverstash.server.com/rest/api1.0/projects/ABC/repos/$repo/browse/$path")
-
-        # Iterate over items
-        for item in $(echo "$response" | jq -r '.children.values[].path.toString'); do
-            is_dir=$(echo "$response" | jq -r ".children.values[] | select(.path.toString==\"$item\") | .directory")
-            
-            if [[ "$is_dir" == "true" ]]; then
-                # Check if directory name matches pattern
-                if [[ "$item" =~ $pattern ]]; then
-                    echo "Match found: $item"
-                fi
-                # Recur for subdirectories
-                search_pattern_recursive "$repo" "$item"
-            fi
-        done
-    }
-
-    # Start searching from the root
-    search_pattern_recursive "$project_name" ""
+                          "$API_URL/$project_name/browse/k8s/envs/dv/usc1/$promotable_path")
+        
+        # Check if the pattern exists in the path
+        if echo "$promotable_path" | grep -q "$pattern"; then
+            echo "Match found: $project_name/browse/k8s/envs/dv/usc1/$promotable_path"
+        fi
+    done
 else
     echo "No such project found."
 fi
