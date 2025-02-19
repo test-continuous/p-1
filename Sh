@@ -1,3 +1,113 @@
+#!/bin/bash
+
+# Define API credentials and base URL
+API_URL="https://serverstash.server.com/rest/api1.0/projects/ABC/repos"
+AUTH_TOKEN="BE2234434343CDD"
+LIMIT=100  # Number of repositories per request
+START=0    # Pagination start index
+COUNT=1    # Counter for numbering repositories
+declare -a REPOS  # Array to store repository names
+
+echo "Fetching all sub-repositories..."
+
+# Fetch all repositories
+while true; do
+    response=$(curl -s -H "Authorization: Bearer $AUTH_TOKEN" \
+                      -H "Content-Type: application/json" \
+                      "$API_URL?limit=$LIMIT&start=$START")
+
+    # Extract repository names
+    for repo_name in $(echo "$response" | jq -r '.values[].name'); do
+        echo "$COUNT. $repo_name"
+        REPOS+=("$repo_name")  # Store repo in array
+        ((COUNT++))
+    done
+
+    # Check if there are more pages
+    is_last_page=$(echo "$response" | jq -r '.isLastPage')
+    if [ "$is_last_page" == "true" ]; then
+        break
+    fi
+
+    START=$(echo "$response" | jq -r '.nextPageStart')
+done
+
+echo "Total repositories listed: $((COUNT - 1))"
+
+# Ask user for a project name
+read -p "Enter the project name you want to search for: " project_name
+
+# Check if project exists in the fetched list
+if [[ " ${REPOS[@]} " =~ " $project_name " ]]; then
+    echo "Yes, found it!"
+
+    # Ask user for pattern input
+    read -p "Enter the pattern to search in 'promotable' folder: " search_pattern
+
+    # Define the base path
+    BASE_PATH="browse/k8s/env/dv/usc1"
+
+    # Fetch all app-ids inside this path
+    echo "Fetching all app-ids under '$BASE_PATH' in '$project_name'..."
+
+    response=$(curl -s -H "Authorization: Bearer $AUTH_TOKEN" \
+                      -H "Content-Type: application/json" \
+                      "https://serverstash.server.com/rest/api1.0/projects/ABC/repos/$project_name/$BASE_PATH")
+
+    # Store all app-ids
+    app_ids=($(echo "$response" | jq -r '.children.values[].path.toString'))
+
+    # Iterate over app-ids to check for matching folders
+    found_match=false
+    for app_id in "${app_ids[@]}"; do
+        PROMOTABLE_PATH="$BASE_PATH/$app_id/promotable"
+
+        # Fetch folders inside promotable
+        echo "Checking folders under '$PROMOTABLE_PATH'..."
+        folder_response=$(curl -s -H "Authorization: Bearer $AUTH_TOKEN" \
+                                 -H "Content-Type: application/json" \
+                                 "https://serverstash.server.com/rest/api1.0/projects/ABC/repos/$project_name/$PROMOTABLE_PATH")
+
+        # Extract folder names
+        folders=($(echo "$folder_response" | jq -r '.children.values[].path.toString'))
+
+        for folder in "${folders[@]}"; do
+            # Check if the folder name contains **all parts** of the pattern in any order
+            match=true
+            for word in $search_pattern; do
+                if [[ ! "$folder" =~ $word ]]; then
+                    match=false
+                    break
+                fi
+            done
+
+            if [[ "$match" == "true" ]]; then
+                echo "Match found: $PROMOTABLE_PATH/$folder"
+                found_match=true
+
+                # Fetch and list all YAML files inside this folder
+                yaml_files=$(curl -s -H "Authorization: Bearer $AUTH_TOKEN" \
+                                      -H "Content-Type: application/json" \
+                                      "https://serverstash.server.com/rest/api1.0/projects/ABC/repos/$project_name/$PROMOTABLE_PATH/$folder" | \
+                             jq -r '.children.values[].path.toString' | grep '\.yaml$')
+
+                echo "YAML files inside '$PROMOTABLE_PATH/$folder':"
+                echo "$yaml_files"
+            fi
+        done
+    done
+
+    if [[ "$found_match" == "false" ]]; then
+        echo "No matching folder found."
+    fi
+
+else
+    echo "No such project found."
+fi
+
+
+
+
 import subprocess
 import json
 import os
