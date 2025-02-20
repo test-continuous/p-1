@@ -1,4 +1,80 @@
 function search_promotable {
+    local path="$1"
+    
+    echo "Fetching data from: $API_URL/$project_name/browse/$path"
+
+    response=$(curl -s -H "Authorization: Bearer $AUTH_TOKEN" \
+                      -H "Content-Type: application/json" \
+                      "$API_URL/$project_name/browse/$path")
+
+    echo "API Response: $response"  # Debugging
+
+    if echo "$response" | jq -e '.errors' > /dev/null; then
+        echo "Skipping: '$path' (not found)"
+        return
+    fi
+
+    # Extract all subdirectories inside promotable
+    subdirs=($(echo "$response" | jq -r '.children.values[] | select(.directory == true) | .path.toString'))
+
+    echo "Found subdirectories in promotable: ${subdirs[@]}"
+
+    # Check if any folder matches the pattern
+    for subdir in "${subdirs[@]}"; do
+        if [[ "$subdir" =~ $pattern ]]; then
+            echo "✅ Match found: $API_URL/$project_name/browse/$path/$subdir"
+        fi
+    done
+
+    # Recursively scan deeper into subfolders inside promotable
+    for subdir in "${subdirs[@]}"; do
+        search_promotable "$path/$subdir"
+    done
+}
+
+
+function dfs_search {
+    local path="$1"
+
+    echo "Fetching data from: $API_URL/$project_name/browse/$path"
+
+    response=$(curl -s -H "Authorization: Bearer $AUTH_TOKEN" \
+                      -H "Content-Type: application/json" \
+                      "$API_URL/$project_name/browse/$path")
+
+    echo "API Response: $response"  # Debugging
+
+    if echo "$response" | jq -e '.errors' > /dev/null; then
+        echo "Skipping: '$path' (not found)"
+        return
+    fi
+
+    # Extract all subdirectories
+    subdirs=($(echo "$response" | jq -r '.children.values[] | select(.directory == true) | .path.toString'))
+
+    echo "Found subdirectories: ${subdirs[@]}"
+
+    if [ ${#subdirs[@]} -eq 0 ]; then
+        echo "No more subdirectories. Stopping search."
+        return
+    fi
+
+    # Recursively explore each subdirectory
+    for subdir in "${subdirs[@]}"; do
+        full_path="$path/$subdir"
+        echo "Checking: $full_path"
+
+        # If this is the "promotable" folder, start searching inside it
+        if [[ "$subdir" == "promotable" ]]; then
+            echo "🔍 Entering promotable folder: $full_path"
+            search_promotable "$full_path"
+        else
+            dfs_search "$full_path"
+        fi
+    done
+}
+----
+function search_promotable {
     local project_name="$1"
     local pattern="$2"
     local base_path="k8s/envs/dv/usc1"
