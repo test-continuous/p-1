@@ -1,0 +1,77 @@
+#!/bin/bash
+
+# Constants
+API_URL="https://serverstash.server.com/rest/api1.0/projects/rep/repos"
+AUTH_TOKEN="BE2234434343CDD"
+PROJECT_NAME="prj-name"
+
+# Get user input
+read -p "Enter search pattern: " pattern
+
+# Function to fetch API data
+fetch_data() {
+    local path="$1"
+    curl -s -H "Authorization: Bearer $AUTH_TOKEN" \
+         -H "Content-Type: application/json" \
+         "$API_URL/$PROJECT_NAME/browse/$path"
+}
+
+# Recursive DFS function
+dfs_search() {
+    local base_path="$1"
+
+    echo "Fetching data from: $API_URL/$PROJECT_NAME/browse/$base_path"
+
+    response=$(fetch_data "$base_path")
+    
+    # Check for errors
+    if echo "$response" | jq -e '.errors' > /dev/null; then
+        echo "Skipping: $base_path (not found)"
+        return
+    fi
+
+    # Extract subdirectories
+    subdirs=($(echo "$response" | jq -r '.children.values[] | select(.type == "DIRECTORY") | .path.toString'))
+    
+    # Iterate through subdirectories
+    for subdir in "${subdirs[@]}"; do
+        full_path="$base_path/$subdir"
+        
+        # If folder name matches pattern, print match
+        if [[ "$subdir" == *"$pattern"* ]]; then
+            echo "Match found: $API_URL/$PROJECT_NAME/browse/$full_path"
+        fi
+        
+        # Recursively search subdirectories
+        dfs_search "$full_path"
+    done
+}
+
+# Step 1: Navigate to `prj-name/browse/k8s/envs/pr/`
+base_path="k8s/envs/pr"
+regions=$(fetch_data "$base_path" | jq -r '.children.values[] | select(.type == "DIRECTORY") | .path.toString')
+
+# Step 2: Loop through regions (`usc1`, `use5`)
+for region in $regions; do
+    region_path="$base_path/$region"
+    echo "Exploring region: $region_path"
+
+    # Step 3: Find all `app-*` IDs
+    apps=$(fetch_data "$region_path" | jq -r '.children.values[] | select(.type == "DIRECTORY" and .path.toString | startswith("app-")) | .path.toString')
+
+    for app in $apps; do
+        app_path="$region_path/$app"
+        echo "Exploring App-ID: $app_path"
+
+        # Step 4: Navigate to `promotable`, `resources`, `local`
+        for folder in "promotable" "resources" "local"; do
+            folder_path="$app_path/$folder"
+            echo "Checking folder: $folder_path"
+
+            # Step 5: Perform Recursive DFS Search inside these folders
+            dfs_search "$folder_path"
+        done
+    done
+done
+
+echo "Search completed!"
